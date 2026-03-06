@@ -1,10 +1,15 @@
 import streamlit as st
 import openpyxl
 import io
-import re
+import os
 
-def load_content_master_lookup(file_buffer):
-    wb = openpyxl.load_workbook(file_buffer, data_only=True)
+# Get the directory where the app is located
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+CONTENT_MASTER_PATH = os.path.join(APP_DIR, "content_master.xlsx")
+GS_MASTER_PATH = os.path.join(APP_DIR, "gs.xlsx")
+
+def load_content_master_lookup(file_path):
+    wb = openpyxl.load_workbook(file_path, data_only=True)
     ws = wb.active
     headers = {cell.value.strip(): col_idx for col_idx, cell in enumerate(ws[1], start=1) if cell.value}
     lookup = {}
@@ -16,8 +21,8 @@ def load_content_master_lookup(file_buffer):
             lookup[bz_code] = {k: ws.cell(row=row, column=headers.get(v, 0)).value for k, v in required_fields.items()}
     return lookup
 
-def load_master_lookup(file_buffer):
-    wb = openpyxl.load_workbook(file_buffer, data_only=True)
+def load_master_lookup(file_path):
+    wb = openpyxl.load_workbook(file_path, data_only=True)
     ws = wb.active
     headers = {cell.value.strip(): col_idx for col_idx, cell in enumerate(ws[1], start=1) if cell.value}
     lookup = {}
@@ -28,9 +33,9 @@ def load_master_lookup(file_buffer):
             lookup[article] = {"Size": ws.cell(row=row, column=headers.get("Size", 0)).value, "New MRP": ws.cell(row=row, column=headers.get("NEW MRP", headers.get("New MRP", 0))).value, "Old MRP": ws.cell(row=row, column=headers.get("OLD MRP", headers.get("Old MRP", 0))).value, "EAN/UPC": ws.cell(row=row, column=headers.get("EAN/UPC", 0)).value, "Country": ws.cell(row=row, column=headers.get("Country", 0)).value, "Dimension": ws.cell(row=row, column=headers.get("Dimension", 0)).value, "Article": article}
     return lookup
 
-def process_excel_data(products_buffer, content_buffer, master_buffer):
-    content_lookup = load_content_master_lookup(content_buffer)
-    master_lookup = load_master_lookup(master_buffer)
+def process_excel_data(products_buffer):
+    content_lookup = load_content_master_lookup(CONTENT_MASTER_PATH)
+    master_lookup = load_master_lookup(GS_MASTER_PATH)
     wb = openpyxl.load_workbook(products_buffer)
     ws = wb.active
     headers = {cell.value.strip(): col_idx for col_idx, cell in enumerate(ws[1], start=1) if cell.value}
@@ -67,18 +72,11 @@ def process_excel_data(products_buffer, content_buffer, master_buffer):
     out.seek(0)
     return out
 
-import os
-
-# Get the directory where the app is located
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
-CONTENT_FILE = os.path.join(APP_DIR, "content_master.xlsx")
-GS_FILE = os.path.join(APP_DIR, "gs.xlsx")
-
 st.title("Product Data Populator")
 
 # Check if reference files exist
-content_exists = os.path.exists(CONTENT_FILE)
-gs_exists = os.path.exists(GS_FILE)
+content_exists = os.path.exists(CONTENT_MASTER_PATH)
+gs_exists = os.path.exists(GS_MASTER_PATH)
 
 if not content_exists or not gs_exists:
     st.error("Reference files missing! Please ensure these files are in the app folder:")
@@ -97,6 +95,6 @@ else:
     
     if prod_file:
         if st.button("Process Data"):
-            result = process_excel_data(prod_file, CONTENT_FILE, GS_FILE)
+            result = process_excel_data(prod_file)
             st.success("Processing Complete!")
             st.download_button("Download Result", data=result, file_name="new6.xlsx")

@@ -2,6 +2,7 @@ import streamlit as st
 import openpyxl
 import io
 import os
+import re
 
 # Get the directory where the app is located
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -33,6 +34,23 @@ def load_master_lookup(file_path):
             lookup[article] = {"Size": ws.cell(row=row, column=headers.get("Size", 0)).value, "New MRP": ws.cell(row=row, column=headers.get("NEW MRP", headers.get("New MRP", 0))).value, "Old MRP": ws.cell(row=row, column=headers.get("OLD MRP", headers.get("Old MRP", 0))).value, "EAN/UPC": ws.cell(row=row, column=headers.get("EAN/UPC", 0)).value, "Country": ws.cell(row=row, column=headers.get("Country", 0)).value, "Dimension": ws.cell(row=row, column=headers.get("Dimension", 0)).value, "Article": article}
     return lookup
 
+def format_dimension(value):
+    """Format dimension string: remove prefix, fix cm spacing."""
+    if not isinstance(value, str):
+        return value
+    value = value.strip()
+    # Remove prefix like "MEDIUM;" if present
+    if ';' in value:
+        value = value.split(';', 1)[1].strip()
+    # Case 1: (Dimensions)cm
+    match = re.search(r'\((.*?)\)cm', value, re.IGNORECASE)
+    if match:
+        return f"{match.group(1).strip()} cm"
+    # Case 2: Dimensionscm (no parentheses) - add space before cm
+    if value.lower().endswith('cm') and not value.lower().endswith(' cm'):
+        return value[:-2] + ' cm'
+    return value
+
 def process_excel_data(products_buffer):
     content_lookup = load_content_master_lookup(CONTENT_MASTER_PATH)
     master_lookup = load_master_lookup(GS_MASTER_PATH)
@@ -41,6 +59,17 @@ def process_excel_data(products_buffer):
     headers = {cell.value.strip(): col_idx for col_idx, cell in enumerate(ws[1], start=1) if cell.value}
     sku_col = headers.get("SKU")
     mapping = [("Title", "content", "Title"), ("Body (HTML)", "content", "HTML content"), ("Vendor", "content", "Brand Name"), ("Option1 Value", "content", "Colour"), ("Option2 Value", "master", "Size"), ("Variant SKU", "master", "Article"), ("Variant Price", "master", "New MRP"), ("Variant Compare At Price", "master", "Old MRP"), ("Variant Barcode", "master", "EAN/UPC"), ("Size (product.metafields.custom.size)", "master", "Size"), ("Care Instruction (product.metafields.my_fields.care_instruction)", "content", "Care Instruction"), ("Country of origin (product.metafields.my_fields.country_of_origin)", "master", "Country"), ("Dimensions (product.metafields.my_fields.specifications)", "master", "Dimension")]
+    
+    # Fixed default values for columns
+    fixed_defaults = {
+        "Published": True,
+        "Option1 Name": "Color",
+        "Option2 Name": "Size",
+        "Variant Grams": 400,
+        "Quantity (product.metafields.custom.product_qty)": "1N",
+        "Variant Weight Unit": "kg",
+        "Status": "Active",
+    }
     
     for row in range(2, ws.max_row + 1):
         sku = str(ws.cell(row=row, column=sku_col).value or "").strip()
@@ -58,7 +87,16 @@ def process_excel_data(products_buffer):
                     val = val.strip()
                     if prod_col in ["Vendor", "Option1 Value", "Option2 Value", "Size (product.metafields.custom.size)", "Country of origin (product.metafields.my_fields.country_of_origin)"]: val = val.title()
                     if prod_col in ["Option2 Value", "Size (product.metafields.custom.size)"] and val.lower() == "x-large": val = "Extra Large"
+                    # Format dimensions
+                    if prod_col == "Dimensions (product.metafields.my_fields.specifications)":
+                        val = format_dimension(val)
                 ws.cell(row=row, column=idx, value=val)
+        
+        # Set fixed default values
+        for col_name, default_value in fixed_defaults.items():
+            target_idx = headers.get(col_name)
+            if target_idx:
+                ws.cell(row=row, column=target_idx, value=default_value)
         
         m_idx = headers.get("Manufacturer Details (product.metafields.my_fields.manufacturer_details)")
         if m_idx and country_of_origin:
